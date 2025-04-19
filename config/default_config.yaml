@@ -1,0 +1,46 @@
+detection:
+  model: "yolov8n.pt"  # nano model for fastest processing
+  confidence_threshold: 0.8
+  person_count: 2
+  skip_frames: 10  # increased skip rate for faster processing
+  adaptive_skip: true
+  resize_width: 416  # reduced size for faster processing
+  resize_height: 416
+  maintain_aspect_ratio: true
+  iou_threshold: 0.5
+  max_detections: 20  # reduced from default 100 since we only need 2 persons
+
+output:
+  format: "{timestamp}.jpg"
+  quality: 90  # slightly reduced quality for faster saving
+  min_interval_seconds: 5
+  include_metadata: true
+  metadata_format: "{timestamp}.json"
+
+processing:
+  batch_size: 8  # optimized for M1 GPU memory
+  use_gpu: true
+  half_precision: false  # MPS doesn't support half precision yet
+  cuda_memory_fraction: 0.8  # allow using 80% of GPU memory
+  num_threads: 8  # M1 has 8 performance cores
+  buffer_size: 64
+  use_mps: true  # Use Metal Performance Shaders
+  metal_memory_budget: 4096  # 4GB Metal memory budget
+  log_level: "INFO"
+  temp_dir: "/tmp/video-logs-extract"
+
+input:
+  supported_formats:
+    - ".mp4"
+    - ".avi"
+    - ".mkv"
+    - ".mov"
+  recursive: true
+  min_file_size: 0
+  max_file_size: null
+
+supported_formats:
+  - ".mp4"
+  - ".avi"
+  - ".mkv"
+  - ".mov" 
