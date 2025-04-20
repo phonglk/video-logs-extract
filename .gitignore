@@ -137,3 +137,6 @@ dist
 
 output/
 video_sample/
+
+venv/
+__pycache__/

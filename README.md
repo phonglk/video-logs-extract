@@ -1,33 +1,34 @@
 # Video Logs Extract
 
-A Python CLI tool for analyzing home camera recordings and extracting frames containing exactly two people.
+A Python CLI tool for analyzing home camera recordings and extracting frames containing people.
 
 ## Overview
 
-This tool processes video files from security cameras to automatically detect and extract frames where exactly two people are present. It uses YOLOv8 for person detection and OpenCV for video processing, with optimized batch processing and GPU acceleration.
+This tool processes video files from security cameras to automatically detect and extract frames where people are present. It uses YOLOv8 for person detection and OpenCV for video processing, with optimized batch processing and GPU acceleration.
 
 ```mermaid
 graph TD
     A[Input Videos] --> B[Video Processor]
-    B --> C[Batch Frame Processing]
-    C --> D[Person Detection]
-    D --> E{Exactly 2 People?}
-    E --> |Yes| F[Frame Manager]
-    E --> |No| G[Skip Frame]
-    F --> H[Stage 1: Raw]
-    F --> I[Stage 2: Filtered]
+    B --> C[Frame Buffer]
+    C --> D[Batch Frame Processing]
+    D --> E[Person Detection]
+    E --> F[Frame Manager]
+    F --> G[Save Frame & Metadata]
+    G --> H[Stage 1: Raw]
+    G --> I[Stage 2: Processed]
 ```
 
 ## Features
 
 - Multi-threaded batch video processing
 - GPU-accelerated person detection using YOLOv8
-- Staged output with raw and filtered frames
+- Asynchronous frame reading and processing
 - Real-time progress tracking with ETA
 - Configurable detection parameters
 - Efficient frame skipping and batch processing
 - Support for common video formats
 - Detailed metadata for each extracted frame
+- Performance metrics tracking
 
 ## Project Structure
 
@@ -39,19 +40,12 @@ video-logs-extract/
 │   ├── person_detector.py     # YOLOv8 detection with GPU optimization
 │   ├── frame_buffer.py        # Async frame buffer management
 │   └── utils.py              # Progress tracking and frame management
-├── tests/
-│   ├── __init__.py
-│   ├── test_video_processor.py
-│   ├── test_person_detector.py
-│   └── test_frame_buffer.py
 ├── config/
 │   └── default_config.yaml    # Configuration parameters
 ├── output/
 │   ├── stage1_raw/           # Initial frame extractions
-│   └── stage2_filtered/      # Post-processed frames
+│   └── stage2_processed/     # Post-processed frames
 ├── main.py                   # CLI entry point
-├── extract-video.fish        # Fish shell wrapper
-├── requirements.txt
 └── README.md
 ```
 
@@ -60,7 +54,7 @@ video-logs-extract/
 - Python 3.8+
 - OpenCV
 - YOLOv8
-- PyTorch (with CUDA support recommended)
+- PyTorch (with CUDA/MPS support recommended)
 - NumPy
 
 ```bash
@@ -75,12 +69,7 @@ cp .env.example .env
 # Edit .env with your input/output directories
 ```
 
-2. Run using the fish shell script:
-```bash
-./extract-video.fish
-```
-
-Or run directly with Python:
+2. Run with Python:
 ```bash
 python main.py
 ```
@@ -96,32 +85,49 @@ OUTPUT_DIR=/path/to/output
 # Optional settings
 CONFIDENCE=0.6        # Detection confidence threshold
 SKIP_FRAMES=5        # Process every Nth frame
-OUTPUT_FORMAT=jpg    # Output image format
-PERSON_COUNT=2      # Number of people to detect
+FORMAT=jpg           # Output image format
 ```
 
 ### Configuration File (config/default_config.yaml)
 ```yaml
 detection:
-  model: "yolov8n.pt"         # Model to use
-  confidence_threshold: 0.8    # Default confidence (can be overridden by .env)
-  person_count: 2             # Number of people to detect
-  skip_frames: 5              # Frame skip rate
-  resize_width: 640          # Input frame width
-  resize_height: 640         # Input frame height
+  model: "yolov8n.pt"  # nano model for fastest processing
+  confidence_threshold: 0.8
+  person_count: 2
+  skip_frames: 10  # increased skip rate for faster processing
+  adaptive_skip: true
+  resize_width: 416  # reduced size for faster processing
+  resize_height: 416
+  maintain_aspect_ratio: true
+  iou_threshold: 0.5
+  max_detections: 20  # reduced from default 100
+  confidence: 0.5
+  target_person_count: 1
+  device: cpu
 
 output:
-  format: "{timestamp}.jpg"   # Output filename format
-  quality: 95                # JPEG quality
-  min_interval_seconds: 5    # Minimum time between saved frames
+  format: "{timestamp}.jpg"
+  quality: 90  # slightly reduced quality for faster saving
+  min_interval_seconds: 5
+  include_metadata: true
+  metadata_format: "{timestamp}.json"
+  stage1_raw: output/stage1_raw
+  stage2_processed: output/stage2_processed
 
 processing:
-  batch_size: 32            # Frames to process at once
-  use_gpu: true            # Enable GPU acceleration
-  half_precision: true     # Use FP16 for faster processing
-  num_threads: 8           # Worker thread count
-  buffer_size: 128         # Frame buffer size
-  log_level: "INFO"        # Logging verbosity
+  batch_size: 32
+  use_gpu: true
+  half_precision: false  # MPS doesn't support half precision yet
+  cuda_memory_fraction: 0.8
+  num_threads: 8
+  buffer_size: 64
+  use_mps: true  # Use Metal Performance Shaders
+  metal_memory_budget: 4096  # 4GB Metal memory budget
+  log_level: "INFO"
+  frame_skip: 5
+  frame_queue_size: 256
+  result_queue_size: 64
+  prefetch_batches: 2
 ```
 
 ## Output Structure
@@ -129,177 +135,76 @@ processing:
 The tool organizes extracted frames in a two-stage structure:
 
 1. `stage1_raw/`: Initial frame extractions with metadata
-   - Frame images: `YYYYMMDD_HHMMSS.jpg`
-   - Metadata: `YYYYMMDD_HHMMSS.json`
+   - Frame images: `frame_YYYYMMDD_HHMMSS_uuuuuu.jpg`
+   - Metadata: `frame_YYYYMMDD_HHMMSS_uuuuuu.json`
 
-2. `stage2_filtered/`: Post-processed frames (for future processing)
+2. `stage2_processed/`: Post-processed frames with detection data
 
 Each frame's metadata includes:
-- Timestamp
-- Detection confidence scores
-- Bounding box coordinates
-- Processing information
-
-## Performance Features
-
-- GPU acceleration with half-precision (FP16)
-- Multi-threaded frame processing
-- Batch frame detection
-- Efficient frame skipping
-- Asynchronous I/O operations
-- Progress tracking with ETA
-- Adaptive frame rate processing
+- Timestamp (ISO format)
+- Person detections:
+  - Bounding boxes
+  - Confidence scores
+  - Class labels
 
 ## Multi-Threading Architecture
 
-The application implements a sophisticated multi-threading architecture to maximize performance across CPU and GPU resources. Here's a detailed breakdown:
-
-### Thread Pools and Processing Layers
-
-```mermaid
-graph TD
-    subgraph Main Thread
-        A[Video Reader] --> B[Frame Batch Collection]
-        B --> C[Batch Processing Coordinator]
-    end
-    
-    subgraph Thread Pool
-        C --> D[Frame Resizing Workers]
-        D --> E[Frame Detection]
-        E --> F[Frame Saving Workers]
-    end
-    
-    subgraph GPU Processing
-        E --> G[YOLO Model]
-        G --> E
-    end
-    
-    subgraph Async I/O
-        F --> H[Stage 1: Raw]
-        F --> I[Stage 2: Filtered]
-    end
-```
+The application implements a sophisticated multi-threading architecture to maximize performance:
 
 ### Key Components
 
-1. **Thread Pool Executors**
-   - `ThreadPoolExecutor`: Handles I/O-bound tasks (frame saving)
-   - `ProcessPoolExecutor`: Manages CPU-bound tasks (frame resizing)
+1. **Frame Buffer**
+   - Asynchronous frame reading thread
+   - Prefetch thread for frame preparation
+   - Configurable queue sizes for optimal memory usage
    ```python
-   max_workers = config['processing'].get('max_workers', mp.cpu_count())
-   self.thread_pool = ThreadPoolExecutor(max_workers=max_workers)
-   self.process_pool = ProcessPoolExecutor(max_workers=max_workers)
+   frame_queue_size: 256    # Frame reading queue
+   result_queue_size: 64    # Processing results queue
+   prefetch_batches: 2      # Number of batches to prefetch
    ```
 
-2. **Frame Processing Pipeline**
+2. **Processing Pipeline**
    ```mermaid
    sequenceDiagram
+       participant RT as Read Thread
+       participant PF as Prefetch Thread
        participant MT as Main Thread
-       participant RP as Resize Pool
-       participant GPU as GPU Detection
        participant TP as Thread Pool
        participant IO as Disk I/O
 
-       MT->>MT: Collect Frame Batch
-       MT->>RP: Resize Frames
-       activate RP
-       RP-->>MT: Resized Frames
-       deactivate RP
-       MT->>GPU: Detect Persons
-       activate GPU
-       GPU-->>MT: Detection Results
-       deactivate GPU
-       MT->>TP: Save Frames
-       activate TP
+       RT->>RT: Read Video Frames
+       RT->>PF: Frame Batch
+       PF->>MT: Prepared Batch
+       MT->>MT: Detect Persons
+       MT->>TP: Save Frame
        TP->>IO: Write Files
-       IO-->>TP: Files Saved
-       TP-->>MT: Save Complete
-       deactivate TP
    ```
 
-3. **Asynchronous Frame Buffer**
-   - Manages frame queues between threads
-   - Implements producer-consumer pattern
-   ```python
-   class FrameBuffer:
-       def __init__(self, buffer_size: int = 100):
-           self.frame_queue = Queue(maxsize=buffer_size)
-           self.result_queue = Queue(maxsize=buffer_size)
-   ```
+3. **Performance Tracking**
+   - Read time
+   - Resize time
+   - Detection time
+   - Save time
+   - Batch processing statistics
 
-4. **GPU Optimization**
-   - Utilizes CUDA for YOLO model inference
-   - Supports half-precision (FP16) for faster processing
-   ```python
-   if torch.cuda.is_available() and config['processing'].get('use_gpu', True):
-       self.model.to('cuda')
-       if self.use_half:
-           self.model.model.half()
-   ```
+### Performance Features
 
-### Processing Flow
-
-1. **Frame Collection**
-   - Main thread reads video frames
-   - Frames are collected into batches
-   - Batch size is configurable (default: 32)
-
-2. **Parallel Frame Preparation**
-   - Process pool resizes frames concurrently
-   - Maintains aspect ratio while targeting model input size
-   ```python
-   def prepare_frame_batch(self, frames: List[np.ndarray]) -> List[np.ndarray]:
-       target_size = (
-           self.config['detection'].get('resize_width', 640),
-           self.config['detection'].get('resize_height', 640)
-       )
-   ```
-
-3. **GPU Detection**
-   - Batched frames sent to GPU
-   - YOLO model processes entire batch
-   - Results filtered for confidence and person count
-
-4. **Asynchronous Saving**
-   - Thread pool handles file I/O
-   - Metadata generation and saving
-   - Progress updates
-
-### Performance Considerations
-
-1. **Resource Utilization**
-   - CPU threads for I/O and preprocessing
-   - GPU for neural network inference
-   - Disk I/O handled asynchronously
+1. **Resource Optimization**
+   - Multi-threaded frame reading and processing
+   - Asynchronous I/O for frame saving
+   - Configurable batch sizes and queue depths
+   - Frame skipping for efficient processing
 
 2. **Memory Management**
-   - Frame buffer prevents memory overflow
-   - Batch processing reduces GPU memory transfers
-   - Automatic CUDA memory cleanup
+   - Frame buffer with controlled queue sizes
+   - Batch processing to optimize GPU memory usage
+   - Automatic cleanup of completed tasks
 
-3. **Bottleneck Prevention**
-   - Frame skipping for high FPS videos
-   - Configurable batch sizes
-   - Adjustable worker counts
-
-### Configuration Options
-
-```yaml
-processing:
-  batch_size: 32            # Frames to process at once
-  use_gpu: true            # Enable GPU acceleration
-  half_precision: true     # Use FP16 for faster processing
-  num_threads: 8           # Worker thread count
-  buffer_size: 128         # Frame buffer size
-```
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+3. **Progress Tracking**
+   - Real-time progress per video
+   - Batch progress across multiple videos
+   - ETA calculation
+   - FPS monitoring
 
 ## License
 

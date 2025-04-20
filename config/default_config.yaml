@@ -1,20 +1,20 @@
 detection:
   model: "yolov8n.pt"  # nano model for fastest processing
-  confidence_threshold: 0.8
-  person_count: 2
-  skip_frames: 10  # increased skip rate for faster processing
+  confidence_threshold: 0.8  # Lower threshold to capture more potential detections
+  person_count: 2  # Lowered to 1 to increase detection
+  skip_frames: 20  # increased skip rate for faster processing
   adaptive_skip: true
-  resize_width: 416  # reduced size for faster processing
-  resize_height: 416
+  resize_width: 680  # reduced size for faster processing
+  resize_height: 480
   maintain_aspect_ratio: true
   iou_threshold: 0.5
-  max_detections: 20  # reduced from default 100 since we only need 2 persons
+  max_detections: 10  # reduced from default 100 since we only need 2 persons
 
 output:
   format: "{timestamp}.jpg"
   quality: 90  # slightly reduced quality for faster saving
   min_interval_seconds: 5
-  include_metadata: true
+  include_metadata: false
   metadata_format: "{timestamp}.json"
 
 processing:
@@ -26,8 +26,16 @@ processing:
   buffer_size: 64
   use_mps: true  # Use Metal Performance Shaders
   metal_memory_budget: 4096  # 4GB Metal memory budget
-  log_level: "INFO"
+  log_level: "DEBUG"  # Console logging level
+  log_file: "logs/video_processor.log"  # Path to log file (set to empty to disable file logging)
+  file_log_level: "INFO"  # File logging level can be different from console
+  log_max_bytes: 10485760  # 10 MB max log file size before rotation
+  log_backup_count: 5  # Keep 5 backup files when rotating
   temp_dir: "/tmp/video-logs-extract"
+  # start_date: 20141017  # Only process videos after this date (YYYYMMDD format)
+  time_ranges:
+    - [10, 13]  # 10 AM to 1 PM
+    - [17, 22]  # 5 PM to 10 PM
 
 input:
   supported_formats:
@@ -38,6 +46,14 @@ input:
   recursive: true
   min_file_size: 0
   max_file_size: null
+
+# Stage-specific configurations
+stage0:
+  output_file: "data/stage0_output.json"  # Output file with filtered video list
+
+stage1:
+  resume_file: "data/stage1_output.json"  # File to track processed videos for resume
+  raw_dir: "stage1_raw"                        # Directory for extracted frames within output directory
 
 supported_formats:
   - ".mp4"
